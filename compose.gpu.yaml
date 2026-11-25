@@ -1,0 +1,15 @@
+# GB10 (Linux + NVIDIA Blackwell GPU) 本番環境用オーバーライド
+# 起動コマンド: docker compose -f compose.yaml -f compose.gpu.yaml up -d --build
+services:
+  app:
+    environment:
+      WHISPER_MODEL: "${WHISPER_MODEL:-large-v3-turbo}"
+      WHISPER_DEVICE: "cuda"
+      WHISPER_COMPUTE_TYPE: "float16"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

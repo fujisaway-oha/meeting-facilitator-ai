@@ -1,0 +1,22 @@
+ollama:
+  request_timeout_sec: 90
+  keep_alive: -1
+
+# MVP (v0.1) では単一モデル（例: llama3.1:latest）でも全役割が動作します。
+# GB10本番環境（v0.5〜）では以下のように役割ごとに異なるモデルを同時常駐させて分担できます。
+agents:
+  scribe:
+    model: "llama3.1:latest"      # GB10推奨: qwen2.5:14b
+    temperature: 0.1
+  auditor:
+    model: "llama3.1:latest"      # GB10推奨: qwen2.5:32b または gemma2:27b
+    temperature: 0.2
+    interval_utterances: 5
+  facilitator:
+    model: "llama3.1:latest"      # GB10推奨: llama3.1:8b または gemma2:9b
+    temperature: 0.4
+    cooldown_sec: 300
+    silence_wait_ms: 2500
+  summarizer:
+    model: "llama3.1:latest"      # GB10推奨: qwen2.5:32b
+    temperature: 0.2
