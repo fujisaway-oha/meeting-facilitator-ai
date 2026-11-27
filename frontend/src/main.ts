@@ -8,6 +8,7 @@ import {
 import { HybridVideoSvgAvatarRenderer } from "./avatar/AvatarRenderer";
 
 const ECHO_TAIL_GUARD_MS = 300;
+const RECENT_HUD_COUNT = 4;
 
 const SAMPLES = [
   { speaker: "クライアント", text: "スマホ表示のとき、画面下部に予約ボタンを固定したいです。" },
@@ -16,7 +17,16 @@ const SAMPLES = [
   { speaker: "制作担当", text: "初回公開日は来月20日で進めましょう。こちらは合意・決定ですね。" },
 ];
 
-const avatar = new HybridVideoSvgAvatarRenderer();
+function $<T extends HTMLElement>(id: string): T {
+  const node = document.getElementById(id);
+  if (!node) throw new Error(`Missing DOM element: #${id}`);
+  return node as T;
+}
+
+const avatar = new HybridVideoSvgAvatarRenderer((label) => {
+  const pill = document.getElementById("avatarStatePill");
+  if (pill) pill.textContent = label;
+});
 
 let ollamaConnected = false;
 let soundEnabled = true;
@@ -29,12 +39,6 @@ let recordedChunks: BlobPart[] = [];
 let voiceTalkRecorder: MediaRecorder | null = null;
 let sampleIdx = 0;
 
-function $<T extends HTMLElement>(id: string): T {
-  const node = document.getElementById(id);
-  if (!node) throw new Error(`Missing DOM element: #${id}`);
-  return node as T;
-}
-
 function shouldUseMock(): boolean {
   const mode = $<HTMLSelectElement>("modeSelect").value;
   if (mode === "mock") return true;
@@ -46,7 +50,7 @@ function setEchoGate(active: boolean): void {
   echoGateActive = active;
   const recordBtn = $<HTMLButtonElement>("recordBtn");
   const voiceTalkBtn = $<HTMLButtonElement>("voiceTalkBtn");
-  const gateStatus = $<HTMLSpanElement>("echoGateStatus");
+  const gateStatus = $<HTMLParagraphElement>("echoGateStatus");
   if (active) {
     if (mediaRecorder && mediaRecorder.state === "recording") {
       mediaRecorder.stop();
@@ -60,7 +64,7 @@ function setEchoGate(active: boolean): void {
   } else {
     recordBtn.disabled = false;
     voiceTalkBtn.disabled = false;
-    gateStatus.textContent = "待機中（ボタンを押して発話を録音）";
+    gateStatus.textContent = "待機中（マイク入力可能）";
   }
 }
 
@@ -146,29 +150,51 @@ function renderBoard(board: BoardMap): void {
   renderBoardCard("listMaterials", board.waiting_materials, "まだ素材待ちはありません");
   renderBoardCard("listUndecided", board.undecided, "まだ未決定事項はありません");
 
+  $<HTMLSpanElement>("boardCountsText").textContent =
+    `決${board.decisions.length}・要${board.requests.length}・素${board.waiting_materials.length}・未${board.undecided.length}`;
+
   if (board.undecided.length > 0) {
     $<HTMLElement>("nextFocusText").textContent =
-      `未決定事項 ${board.undecided.length} 件（${board.undecided[0].content}）`;
+      `未決定 ${board.undecided.length}件：${board.undecided[0].content}`;
   }
 }
 
 function renderUtterances(utterances: Utterance[]): void {
-  const ol = $<HTMLOListElement>("transcriptList");
-  ol.replaceChildren();
+  // 1) 全画面HUD上の直近文字起こし（最新4件）
+  const recentOl = $<HTMLOListElement>("recentTranscriptList");
+  recentOl.replaceChildren();
+  const recentSlice = utterances.slice(-RECENT_HUD_COUNT);
+  if (recentSlice.length === 0) {
+    const li = document.createElement("li");
+    li.className = "empty-hint";
+    li.textContent = "（まだ会話ログはありません。マイクで話すとここにリアルタイム表示されます）";
+    recentOl.appendChild(li);
+  } else {
+    for (const u of recentSlice) {
+      const li = document.createElement("li");
+      const icon = u.source === "stt" ? "🎤" : "⌨️";
+      li.textContent = `${icon} ${u.speaker}: ${u.text}`;
+      recentOl.appendChild(li);
+    }
+  }
+
+  // 2) ドロワー内の全文ログ
+  const fullOl = $<HTMLOListElement>("transcriptList");
+  fullOl.replaceChildren();
   if (utterances.length === 0) {
     const li = document.createElement("li");
     li.className = "empty-hint";
     li.textContent = "音声録音またはテキスト入力で発言を記録します";
-    ol.appendChild(li);
+    fullOl.appendChild(li);
     return;
   }
   for (const u of utterances) {
     const li = document.createElement("li");
     const srcTag = u.source === "stt" ? "🎤" : "⌨️";
     li.textContent = `${srcTag} [${u.speaker}] ${u.text}`;
-    ol.appendChild(li);
+    fullOl.appendChild(li);
   }
-  ol.scrollTop = ol.scrollHeight;
+  fullOl.scrollTop = fullOl.scrollHeight;
 }
 
 function connectMeetingSocket(meetingId: string): void {
@@ -204,14 +230,14 @@ async function refreshHealth(): Promise<void> {
   avatar.setUseCustomVideos(h.has_custom_videos);
 
   const ollamaBadge = $<HTMLSpanElement>("ollamaBadge");
-  ollamaBadge.className = ollamaConnected ? "badge badge-ok" : "badge badge-warn";
-  ollamaBadge.textContent = ollamaConnected ? "🟢 Ollama接続中" : "🟡 デモモード（Ollama未接続）";
+  ollamaBadge.className = ollamaConnected ? "hud-chip badge-ok" : "hud-chip badge-warn";
+  ollamaBadge.textContent = ollamaConnected ? "🟢 LLM接続中" : "🟡 デモモード";
 
   const vvBadge = $<HTMLSpanElement>("voicevoxBadge");
-  vvBadge.className = h.voicevox.connected ? "badge badge-ok" : "badge badge-warn";
+  vvBadge.className = h.voicevox.connected ? "hud-chip badge-ok" : "hud-chip badge-warn";
   vvBadge.textContent = h.voicevox.connected
-    ? `🟢 VOICEVOX (${h.voicevox.version})`
-    : "🟡 ブラウザ音声フォールバック";
+    ? `🟢 VOICEVOX`
+    : "🟡 標準音声";
 
   const dl = $<HTMLDataListElement>("modelList");
   dl.replaceChildren();
@@ -264,7 +290,7 @@ async function selectMeeting(meetingId: string): Promise<void> {
 async function toggleRecording(): Promise<void> {
   if (echoGateActive) return;
   const recordBtn = $<HTMLButtonElement>("recordBtn");
-  const gateStatus = $<HTMLSpanElement>("echoGateStatus");
+  const hint = $<HTMLParagraphElement>("voiceTalkHint");
 
   if (mediaRecorder && mediaRecorder.state === "recording") {
     mediaRecorder.stop();
@@ -285,8 +311,8 @@ async function toggleRecording(): Promise<void> {
     mediaRecorder.onstop = async () => {
       stream.getTracks().forEach((t) => t.stop());
       recordBtn.classList.remove("recording");
-      recordBtn.textContent = "🎤 録音開始（Whisper文字起こし）";
-      gateStatus.textContent = "Whisperでローカル文字起こし中...";
+      recordBtn.textContent = "🎤 発言のみ記録";
+      hint.textContent = "Whisperで文字起こし ＆ ボード整理中...";
       avatar.setState("thinking");
 
       const blob = new Blob(recordedChunks, { type: mediaRecorder?.mimeType || "audio/webm" });
@@ -300,18 +326,17 @@ async function toggleRecording(): Promise<void> {
         const res = await apiJson<{
           skipped?: boolean;
           transcribed_text: string;
-          board?: BoardMap;
         }>(`/api/meetings/${currentMeetingId}/audio`, { method: "POST", body: fd });
 
         if (!res.skipped) {
           await selectMeeting(currentMeetingId);
         }
-        gateStatus.textContent = res.transcribed_text
-          ? `認識結果: 「${res.transcribed_text}」`
+        hint.textContent = res.transcribed_text
+          ? `記録完了: 「${res.transcribed_text}」`
           : "無音のためスキップしました";
       } catch (err) {
         alert((err as Error).message);
-        gateStatus.textContent = "文字起こしエラー";
+        hint.textContent = "文字起こしエラー";
       } finally {
         avatar.setState("idle");
       }
@@ -320,10 +345,10 @@ async function toggleRecording(): Promise<void> {
     mediaRecorder.start();
     avatar.setState("listening");
     recordBtn.classList.add("recording");
-    recordBtn.textContent = "⏹ 録音停止して文字起こし送信";
-    gateStatus.textContent = "🔴 録音中... 話し終えたら停止を押してください";
+    recordBtn.textContent = "⏹ 記録停止して送信";
+    hint.textContent = "🔴 会議発言を録音中... もう一度「記録停止」を押すと議事ボードへ反映します";
   } catch {
-    alert("マイクへのアクセスが許可されていないか、利用できない環境です。");
+    alert("マイクへのアクセスを許可してください。");
   }
 }
 
@@ -334,7 +359,6 @@ async function startOrStopVoiceConversation(): Promise<void> {
   const hint = $<HTMLParagraphElement>("voiceTalkHint");
   const heardLine = $<HTMLParagraphElement>("userHeardText");
 
-  // 録音中にもう一度押された場合は即時送信する
   if (voiceTalkRecorder && voiceTalkRecorder.state === "recording") {
     voiceTalkRecorder.stop();
     return;
@@ -406,17 +430,17 @@ async function startOrStopVoiceConversation(): Promise<void> {
       stopMonitor();
       voiceTalkRecorder = null;
       btn.classList.remove("listening");
-      btn.textContent = "🎙️ 声でAIに話しかける（話し終えると自動返答）";
+      btn.textContent = "🎙️ 声でAIと話す";
 
       if (timedOutSilence || chunks.length === 0) {
         avatar.setState("idle");
-        hint.textContent = "音声が検出されませんでした。ボタンを押して話しかけてください。";
+        hint.textContent = "音声が検出されませんでした。「声でAIと話す」を押して話しかけてください。";
         return;
       }
 
       avatar.setState("thinking");
       btn.disabled = true;
-      hint.textContent = "🧠 Whisperで音声認識 ＆ AI返答を作成中（初回のみ数十秒かかります）...";
+      hint.textContent = "🧠 Whisperで音声認識 ＆ AI返答を作成中...";
 
       const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
       const fd = new FormData();
@@ -458,7 +482,6 @@ async function startOrStopVoiceConversation(): Promise<void> {
           $<HTMLElement>("nextFocusText").textContent = res.next_focus;
         }
 
-        // 声で「締めて／まとめて」と言われた場合は確定議事録モーダルも自動表示する
         if (res.is_summary) {
           $<HTMLInputElement>("continuousTalkCheck").checked = false;
           const ul = $<HTMLUListElement>("nextActionsList");
@@ -475,10 +498,10 @@ async function startOrStopVoiceConversation(): Promise<void> {
           await selectMeeting(currentMeetingId);
         }
 
-        hint.textContent = "🔊 AIファシリテーターが返答中...";
+        hint.textContent = "🔊 AIファシリテーターが発話中...";
 
         await playFacilitatorVoice(res.spoken_message || "", res.audio_url || null, () => {
-          hint.textContent = "ボタンを押して話しかけると、AIが声で返事します";
+          hint.textContent = "下の「声でAIと話す」からいつでも話しかけられます";
           if ($<HTMLInputElement>("continuousTalkCheck").checked) {
             startOrStopVoiceConversation();
           }
@@ -494,8 +517,8 @@ async function startOrStopVoiceConversation(): Promise<void> {
     rec.start();
     avatar.setState("listening");
     btn.classList.add("listening");
-    btn.textContent = "⏹ 聞き取り中...（話し終えると自動送信 / クリックで即送信）";
-    hint.textContent = "🎤 マイクに向かって話しかけてください（例：「こんにちは」「未決定事項を教えて」）";
+    btn.textContent = "⏹ 聞き取り中（クリックで即送信）";
+    hint.textContent = "🎤 話しかけてください（例：「こんにちは」「未決定事項を教えて」「会議を締めてください」）";
   } catch {
     alert("マイクの使用をブラウザで「許可」してください。");
   }
@@ -546,8 +569,20 @@ function bindEvents(): void {
     }
   });
 
+  // サイドドロワー開閉
+  const boardDrawer = $<HTMLDialogElement>("boardDrawer");
+  const logDrawer = $<HTMLDialogElement>("logDrawer");
+  const settingsDrawer = $<HTMLDialogElement>("settingsDrawer");
+
+  $<HTMLButtonElement>("openBoardDrawerBtn").addEventListener("click", () => boardDrawer.showModal());
+  $<HTMLButtonElement>("topBoardBtn").addEventListener("click", () => boardDrawer.showModal());
+  $<HTMLButtonElement>("openLogDrawerBtn").addEventListener("click", () => logDrawer.showModal());
+  $<HTMLButtonElement>("inlineOpenLogBtn").addEventListener("click", () => logDrawer.showModal());
+  $<HTMLButtonElement>("openSettingsDrawerBtn").addEventListener("click", () => settingsDrawer.showModal());
+
   $<HTMLButtonElement>("logoutBtn").addEventListener("click", async () => {
     await apiJson("/api/auth/logout", { method: "POST" });
+    settingsDrawer.close();
     if (currentSocket) currentSocket.close();
     $<HTMLElement>("appView").hidden = true;
     $<HTMLElement>("authView").hidden = false;
@@ -562,7 +597,7 @@ function bindEvents(): void {
     soundEnabled = !soundEnabled;
     const btn = e.currentTarget as HTMLButtonElement;
     btn.setAttribute("aria-pressed", String(soundEnabled));
-    btn.textContent = soundEnabled ? "🔊 音声 ON" : "🔇 音声 OFF";
+    btn.textContent = soundEnabled ? "🔊 音声読み上げ ON" : "🔇 音声読み上げ OFF";
   });
 
   $<HTMLButtonElement>("sampleUtteranceBtn").addEventListener("click", () => {
@@ -638,6 +673,7 @@ function bindEvents(): void {
     const askInput = $<HTMLInputElement>("askInput");
     const q = askInput.value.trim() || "ここまでの論点を整理してください";
     askInput.value = "";
+    logDrawer.close();
     triggerFacilitate(q);
   });
 
@@ -674,9 +710,12 @@ function bindEvents(): void {
     }
   });
 
-  // 新規会議（課題引き継ぎ）モーダル
+  // 新規会議モーダル
   const newMeetingDialog = $<HTMLDialogElement>("newMeetingDialog");
-  $<HTMLButtonElement>("openNewMeetingBtn").addEventListener("click", () => newMeetingDialog.showModal());
+  $<HTMLButtonElement>("openNewMeetingBtn").addEventListener("click", () => {
+    settingsDrawer.close();
+    newMeetingDialog.showModal();
+  });
   $<HTMLButtonElement>("cancelNewMeetingBtn").addEventListener("click", () => newMeetingDialog.close());
   $<HTMLFormElement>("newMeetingForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -693,7 +732,7 @@ function bindEvents(): void {
     await loadMeetingsAndSelect(res.meeting.id);
   });
 
-  // ボード手動追加（ロック）モーダル
+  // ボード手動追加モーダル
   const addBoardDialog = $<HTMLDialogElement>("addBoardDialog");
   $<HTMLButtonElement>("openAddBoardItemBtn").addEventListener("click", () => addBoardDialog.showModal());
   $<HTMLButtonElement>("cancelAddBoardBtn").addEventListener("click", () => addBoardDialog.close());

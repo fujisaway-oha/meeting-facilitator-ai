@@ -115,15 +115,22 @@ sequenceDiagram
 1. **オンデマンド＆タイマー声かけ**：「AIに声をかける」ボタンおよび残り時間チェックに応じ、未決定事項の整理や時間配分をVOICEVOX音声＋アバター映像で案内すること。
 2. **会議終了まとめ**：終了操作で口頭総括の読み上げ、ネクストアクション抽出、Markdown議事録のダウンロード／コピー、およびDBへの確定保存を行うこと。
 
-### FR-05：アバター映像・音声レンダラー抽象化仕様
-Phase 1（MP4ループ動画：`idle.mp4` / `thinking.mp4` / `talk.mp4` 切替、動画未配置時は内蔵SVG口パクへ自動フォールバック）から Phase 2（Live2D / 3D VRM）へ無改修で差し替えられるよう、フロントエンドの描画層を `AvatarRenderer` インターフェースで分離する。
+### FR-05：全画面スピーカービューHUD ＆ アバター描画抽象化仕様
+1. **16:9 全画面スピーカービュー構成**：対面会議室の横長モニター（`100dvw × 100dvh`）全体を使い、中央にバストアップ構図のアバターを大きく表示するビデオ通話風レイアウトとする。
+2. **半透明フローティングHUD（常時表示情報）**：
+   * **上部HUDバー**：案件名・会議タイトル・接続ステータス・現在の「注目論点」ピル・4分類の件数サマリーバッジ（`決・要・素・未`）を表示する。
+   * **下部文字起こし＆字幕オーバーレイ**：直近3〜5件の会話文字起こしフィードと、AIファシリテーターの発話字幕を半透明グラスパネルで重ねて表示する。
+   * **最下部コンパクト通話ドック**：Zoom / Google Meet 風のピル型操作バーに主要操作（声でAIと話す・連続会話切替・発言のみ記録・残り時間声かけ・議事ボード開閉・全文ログ開閉・会議の締め・設定）を集約する。
+3. **半透明サイドドロワー収納**：4分類の議事ボード詳細、全文文字起こしログ・テキスト手入力欄、および会議切替・LLMモデル設定は右側の半透明ドロワー（`<dialog closedby="any">`）に収納し、背面の全画面アバターを視認したまま開閉できるようにする。
+4. **レンダラー抽象化インターフェース**：Phase 1（MP4ループ動画：`idle.mp4` / `talk.mp4` 全画面切替、未配置時は内蔵バストアップSVGへ自動フォールバック）から Phase 2（Live2D / 3D VRM）へ無改修で差し替えられるよう、フロントエンドの描画層を `AvatarRenderer` インターフェースで分離する。
 
 ```typescript
 export type AvatarState = "idle" | "listening" | "thinking" | "speaking";
 
 export interface AvatarRenderer {
   mount(container: HTMLElement): Promise<void>;
-  setState(state: AvatarState): void;
+  setState(state: AvatarState, customLabel?: string): void;
+  setUseCustomVideos(enabled: boolean): void;
   bindAudioSource?(audioContext: AudioContext, sourceNode: AudioNode): void;
   dispose(): void;
 }

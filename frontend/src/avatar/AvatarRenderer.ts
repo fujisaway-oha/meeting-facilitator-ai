@@ -8,25 +8,30 @@ export interface AvatarRenderer {
   dispose(): void;
 }
 
-const STATE_LABELS: Record<AvatarState, string> = {
+export const AVATAR_STATE_LABELS: Record<AvatarState, string> = {
   idle: "待機中（傾聴モード）",
-  listening: "🎤 音声録音中...",
-  thinking: "AIが論点を整理中...",
+  listening: "🎤 聞き取り中...",
+  thinking: "🧠 論点を整理中...",
   speaking: "🔊 AIファシリテーター発話中",
 };
 
 /**
- * Phase 1 実装：MP4ループ動画（idle.mp4 / talk.mp4）配置時は実写・CG動画切替で描画し、
- * 未配置時は内蔵SVG口パクアニメーションで描画する。
- * Phase 2 で Live2D / Three.js (VRM) へ移行する際は同インターフェースの別クラスへ差し替える。
+ * 全画面スピーカービュー対応アバターレンダラー（Phase 1）
+ * - static/videos/ に idle.mp4 / talk.mp4 がある場合は全画面カバー動画で描画
+ * - 未配置時は16:9大型モニターで見やすいバストアップSVGアバターを描画
+ * - Phase 2 で Live2D / Three.js (VRM) へ差し替え可能な共通インターフェースを実装
  */
 export class HybridVideoSvgAvatarRenderer implements AvatarRenderer {
   private container: HTMLElement | null = null;
   private videoIdle: HTMLVideoElement | null = null;
   private videoTalk: HTMLVideoElement | null = null;
-  private svgRoot: SVGSVGElement | null = null;
-  private stateChip: HTMLSpanElement | null = null;
+  private svgWrap: HTMLDivElement | null = null;
+  private onStateChange?: (label: string, state: AvatarState) => void;
   private useVideos = false;
+
+  constructor(onStateChange?: (label: string, state: AvatarState) => void) {
+    this.onStateChange = onStateChange;
+  }
 
   async mount(container: HTMLElement): Promise<void> {
     this.container = container;
@@ -35,8 +40,8 @@ export class HybridVideoSvgAvatarRenderer implements AvatarRenderer {
 
     const vIdle = document.createElement("video");
     vIdle.className = "avatar-video";
-    vIdle.width = 640;
-    vIdle.height = 360;
+    vIdle.width = 1920;
+    vIdle.height = 1080;
     vIdle.muted = true;
     vIdle.loop = true;
     vIdle.playsInline = true;
@@ -45,98 +50,147 @@ export class HybridVideoSvgAvatarRenderer implements AvatarRenderer {
 
     const vTalk = document.createElement("video");
     vTalk.className = "avatar-video";
-    vTalk.width = 640;
-    vTalk.height = 360;
+    vTalk.width = 1920;
+    vTalk.height = 1080;
     vTalk.muted = true;
     vTalk.loop = true;
     vTalk.playsInline = true;
     vTalk.hidden = true;
     vTalk.setAttribute("aria-hidden", "true");
 
+    const svgWrap = document.createElement("div");
+    svgWrap.className = "avatar-stage-figure";
+
+    const aura = document.createElement("div");
+    aura.className = "avatar-aura";
+
     const svgNS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNS, "svg");
-    svg.setAttribute("viewBox", "0 0 240 180");
-    svg.setAttribute("width", "240");
-    svg.setAttribute("height", "180");
+    svg.setAttribute("viewBox", "0 0 640 480");
+    svg.setAttribute("width", "640");
+    svg.setAttribute("height", "480");
     svg.setAttribute("aria-hidden", "true");
     svg.classList.add("avatar-svg");
 
-    const head = document.createElementNS(svgNS, "circle");
-    head.setAttribute("cx", "120");
-    head.setAttribute("cy", "82");
-    head.setAttribute("r", "52");
-    head.setAttribute("fill", "#fde68a");
+    const mk = <K extends keyof SVGElementTagNameMap>(
+      tag: K,
+      attrs: Record<string, string>,
+    ): SVGElementTagNameMap[K] => {
+      const el = document.createElementNS(svgNS, tag);
+      for (const [k, v] of Object.entries(attrs)) {
+        el.setAttribute(k, v);
+      }
+      return el;
+    };
 
-    const hair = document.createElementNS(svgNS, "path");
-    hair.setAttribute("d", "M68 76 C70 34, 170 34, 172 76 C156 58, 84 58, 68 76 Z");
-    hair.setAttribute("fill", "#334155");
+    // 肩・ジャケット（16:9バストアップ構図）
+    const jacket = mk("path", {
+      d: "M130 480 C142 356, 224 318, 320 318 C416 318, 498 356, 510 480 Z",
+      fill: "#1e3a8a",
+    });
+    const shirt = mk("polygon", {
+      points: "282,320 358,320 338,430 302,430",
+      fill: "#f8fafc",
+    });
+    const tie = mk("polygon", {
+      points: "312,338 328,338 336,426 320,446 304,426",
+      fill: "#38bdf8",
+    });
+    const neck = mk("rect", {
+      x: "294",
+      y: "272",
+      width: "52",
+      height: "60",
+      rx: "20",
+      fill: "#fbd38d",
+    });
 
-    const eyeL = document.createElementNS(svgNS, "circle");
-    eyeL.setAttribute("cx", "100");
-    eyeL.setAttribute("cy", "80");
-    eyeL.setAttribute("r", "5.5");
-    eyeL.setAttribute("fill", "#1e293b");
+    // 頭部・髪・耳
+    const earL = mk("circle", { cx: "208", cy: "198", r: "18", fill: "#fbd38d" });
+    const earR = mk("circle", { cx: "432", cy: "198", r: "18", fill: "#fbd38d" });
+    const head = mk("rect", {
+      x: "212",
+      y: "86",
+      width: "216",
+      height: "214",
+      rx: "98",
+      fill: "#fde68a",
+    });
+    const hair = mk("path", {
+      d: "M206 178 C206 82, 434 82, 434 178 C408 128, 356 116, 316 118 C268 120, 228 138, 206 178 Z",
+      fill: "#1e293b",
+    });
+
+    // 眉・目・頬・口
+    const browL = mk("rect", { x: "254", y: "162", width: "36", height: "6", rx: "3", fill: "#334155" });
+    const browR = mk("rect", { x: "350", y: "162", width: "36", height: "6", rx: "3", fill: "#334155" });
+
+    const eyeL = mk("circle", { cx: "272", cy: "190", r: "10", fill: "#0f172a" });
     eyeL.classList.add("avatar-eye");
-
-    const eyeR = document.createElementNS(svgNS, "circle");
-    eyeR.setAttribute("cx", "140");
-    eyeR.setAttribute("cy", "80");
-    eyeR.setAttribute("r", "5.5");
-    eyeR.setAttribute("fill", "#1e293b");
+    const eyeR = mk("circle", { cx: "368", cy: "190", r: "10", fill: "#0f172a" });
     eyeR.classList.add("avatar-eye");
 
-    const mouth = document.createElementNS(svgNS, "rect");
-    mouth.setAttribute("x", "106");
-    mouth.setAttribute("y", "102");
-    mouth.setAttribute("width", "28");
-    mouth.setAttribute("height", "6");
-    mouth.setAttribute("rx", "3");
-    mouth.setAttribute("fill", "#be123c");
+    const cheekL = mk("ellipse", { cx: "248", cy: "218", rx: "16", ry: "9", fill: "#fca5a5", opacity: "0.45" });
+    const cheekR = mk("ellipse", { cx: "392", cy: "218", rx: "16", ry: "9", fill: "#fca5a5", opacity: "0.45" });
+
+    const mouth = mk("rect", {
+      x: "294",
+      y: "242",
+      width: "52",
+      height: "11",
+      rx: "6",
+      fill: "#be123c",
+    });
     mouth.classList.add("avatar-mouth");
 
-    const body = document.createElementNS(svgNS, "path");
-    body.setAttribute("d", "M64 176 C68 138, 172 138, 176 176 Z");
-    body.setAttribute("fill", "#2563eb");
+    svg.append(
+      jacket,
+      shirt,
+      tie,
+      neck,
+      earL,
+      earR,
+      head,
+      hair,
+      browL,
+      browR,
+      eyeL,
+      eyeR,
+      cheekL,
+      cheekR,
+      mouth,
+    );
+    svgWrap.append(aura, svg);
 
-    svg.append(head, hair, eyeL, eyeR, mouth, body);
-
-    const overlay = document.createElement("div");
-    overlay.className = "stage-overlay";
-    const roleChip = document.createElement("span");
-    roleChip.className = "role-chip";
-    roleChip.textContent = "AI進行・書記";
-    const stateChip = document.createElement("span");
-    stateChip.className = "state-chip";
-    stateChip.textContent = STATE_LABELS.idle;
-    overlay.append(roleChip, stateChip);
-
-    container.append(vIdle, vTalk, svg, overlay);
+    container.append(vIdle, vTalk, svgWrap);
     this.videoIdle = vIdle;
     this.videoTalk = vTalk;
-    this.svgRoot = svg;
-    this.stateChip = stateChip;
+    this.svgWrap = svgWrap;
   }
 
   setUseCustomVideos(enabled: boolean): void {
     this.useVideos = enabled;
-    if (!this.svgRoot || !this.videoIdle || !this.videoTalk) return;
+    if (!this.svgWrap || !this.videoIdle || !this.videoTalk) return;
     if (enabled) {
       if (!this.videoIdle.src) this.videoIdle.src = "/videos/idle.mp4";
       if (!this.videoTalk.src) this.videoTalk.src = "/videos/talk.mp4";
-      this.svgRoot.style.display = "none";
+      this.svgWrap.hidden = true;
       this.videoIdle.hidden = false;
       this.videoIdle.play().catch(() => {});
     } else {
-      this.svgRoot.style.display = "";
+      this.svgWrap.hidden = false;
       this.videoIdle.hidden = true;
       this.videoTalk.hidden = true;
     }
   }
 
   setState(state: AvatarState, customLabel?: string): void {
-    if (!this.container || !this.stateChip) return;
+    if (!this.container) return;
     this.container.dataset.state = state;
-    this.stateChip.textContent = customLabel || STATE_LABELS[state];
+    const label = customLabel || AVATAR_STATE_LABELS[state];
+    if (this.onStateChange) {
+      this.onStateChange(label, state);
+    }
 
     if (!this.useVideos || !this.videoIdle || !this.videoTalk) return;
 
