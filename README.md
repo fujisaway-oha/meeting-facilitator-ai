@@ -19,15 +19,24 @@ Docker Composeにより、**手元のMac・一般的な検証用PC・本番のNV
 
 ## 起動方法1：手元のMac / 一般PCでDocker起動する（おすすめ）
 
-Docker Desktopを起動した状態で、以下を実行します。
+Docker Desktopを起動した状態で、クローン先のフォルダに移動して以下を実行します。
 
 ```bash
-cd /Users/yasuyuki/Projects/meeting-facilitator-ai
 docker compose up --build
 ```
 
 起動したらブラウザで **`http://localhost:8000`** を開き、初期パスコード **`1234`** でログインしてください。
 （パスコードを変更する場合は `APP_PASSCODE=任意のパスコード docker compose up` で指定できます）
+
+### MacBook NeoからMac mini上の検証環境を開く（SSHトンネル）
+
+Mac miniでアプリが `127.0.0.1:8000` で起動しており、MacBook NeoからSSH接続できることが前提です。同じネットワーク上のMacBook Neoの「ターミナル」で、ユーザー名とLAN内IPアドレスを実際の値に置き換えて実行します。
+
+```bash
+ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:18000:127.0.0.1:8000 MAC_MINI_USER@MAC_MINI_LAN_IP
+```
+
+SSH接続を維持したまま、MacBook Neoのブラウザで `http://localhost:18000/` を開きます。検証が終わったら、ターミナルで `Ctrl+C` を押してトンネルを閉じます。
 
 ### 手元のMacで動かしながら、頭脳だけGB10のOllamaにつなぐ場合
 別ターミナルでGB10の `11434` ポートをSSH転送しておくと、Docker内の `app` コンテナ（`host.docker.internal:11434`）からGB10上のローカルLLMをそのまま呼び出せます。
