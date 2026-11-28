@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 import uuid
@@ -56,6 +57,23 @@ def synthesize_voicevox(text: str) -> str | None:
         return filename
     except Exception:
         return None
+
+
+def cleanup_audio_cache(max_age_seconds: int = 86400) -> int:
+    """一定時間以上経過した古いVOICEVOX生成音声キャッシュ(.wav)を削除し、削除件数を返す。"""
+    cache_dir = config.DATA_DIR / "audio_cache"
+    if not cache_dir.is_dir():
+        return 0
+    now = time.time()
+    removed = 0
+    for path in cache_dir.glob("*.wav"):
+        try:
+            if now - path.stat().st_mtime > max_age_seconds:
+                path.unlink(missing_ok=True)
+                removed += 1
+        except OSError:
+            continue
+    return removed
 
 
 def _get_whisper_model() -> Any:

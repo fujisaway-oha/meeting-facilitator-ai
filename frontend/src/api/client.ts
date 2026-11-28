@@ -1,3 +1,10 @@
+export interface ProjectInfo {
+  id: string;
+  name: string;
+  client_name: string;
+  created_at: string;
+}
+
 export interface BoardItem {
   id: string;
   category: "decisions" | "requests" | "waiting_materials" | "undecided";
@@ -7,6 +14,7 @@ export interface BoardItem {
 }
 
 export type BoardMap = Record<BoardItem["category"], BoardItem[]>;
+export type BoardCounts = Record<BoardItem["category"], number>;
 
 export interface Utterance {
   id: string;
@@ -28,6 +36,9 @@ export interface MeetingSummaryInfo {
   status: string;
   summary_markdown: string;
   started_at: string;
+  ended_at?: string | null;
+  board_counts?: BoardCounts;
+  utterance_count?: number;
 }
 
 export async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {

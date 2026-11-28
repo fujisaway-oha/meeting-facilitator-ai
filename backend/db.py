@@ -126,7 +126,13 @@ def list_meetings(project_id: str | None = None) -> list[dict[str, Any]]:
     with get_conn() as conn:
         if project_id:
             rows = conn.execute(
-                "SELECT * FROM meetings WHERE project_id = ? ORDER BY started_at DESC",
+                """
+                SELECT m.*, p.name AS project_name, p.client_name
+                FROM meetings m
+                JOIN projects p ON p.id = m.project_id
+                WHERE m.project_id = ?
+                ORDER BY m.started_at DESC
+                """,
                 (project_id,),
             ).fetchall()
         else:
@@ -138,7 +144,41 @@ def list_meetings(project_id: str | None = None) -> list[dict[str, Any]]:
                 ORDER BY m.started_at DESC
                 """
             ).fetchall()
-        return [dict(r) for r in rows]
+
+        board_count_rows = conn.execute(
+            """
+            SELECT meeting_id, category, COUNT(*) AS cnt
+            FROM board_items
+            GROUP BY meeting_id, category
+            """
+        ).fetchall()
+        utterance_count_rows = conn.execute(
+            """
+            SELECT meeting_id, COUNT(*) AS cnt
+            FROM utterances
+            GROUP BY meeting_id
+            """
+        ).fetchall()
+
+    counts_by_meeting: dict[str, dict[str, int]] = {}
+    for r in board_count_rows:
+        mid = r["meeting_id"]
+        cat = r["category"]
+        if mid not in counts_by_meeting:
+            counts_by_meeting[mid] = {c: 0 for c in CATEGORIES}
+        if cat in counts_by_meeting[mid]:
+            counts_by_meeting[mid][cat] = int(r["cnt"])
+
+    utterance_counts = {r["meeting_id"]: int(r["cnt"]) for r in utterance_count_rows}
+
+    result: list[dict[str, Any]] = []
+    for r in rows:
+        item = dict(r)
+        mid = item["id"]
+        item["board_counts"] = counts_by_meeting.get(mid, {c: 0 for c in CATEGORIES})
+        item["utterance_count"] = utterance_counts.get(mid, 0)
+        result.append(item)
+    return result
 
 
 def create_meeting(
@@ -267,6 +307,16 @@ def sync_board_from_scribe(meeting_id: str, new_board: dict[str, list[str]]) -> 
         ).fetchall()
         locked_contents = {r["content"].strip() for r in locked_rows}
 
+        carried_rows = conn.execute(
+            """
+            SELECT content, carried_from_meeting_id
+            FROM board_items
+            WHERE meeting_id = ? AND is_locked = 0 AND carried_from_meeting_id IS NOT NULL
+            """,
+            (meeting_id,),
+        ).fetchall()
+        carried_map = {r["content"].strip(): r["carried_from_meeting_id"] for r in carried_rows}
+
         conn.execute(
             "DELETE FROM board_items WHERE meeting_id = ? AND is_locked = 0",
             (meeting_id,),
@@ -279,10 +329,10 @@ def sync_board_from_scribe(meeting_id: str, new_board: dict[str, list[str]]) -> 
                     continue
                 conn.execute(
                     """
-                    INSERT INTO board_items (id, meeting_id, category, content, is_locked, updated_at)
-                    VALUES (?, ?, ?, ?, 0, ?)
+                    INSERT INTO board_items (id, meeting_id, category, content, is_locked, carried_from_meeting_id, updated_at)
+                    VALUES (?, ?, ?, ?, 0, ?, ?)
                     """,
-                    (str(uuid.uuid4()), meeting_id, cat, cleaned, now),
+                    (str(uuid.uuid4()), meeting_id, cat, cleaned, carried_map.get(cleaned), now),
                 )
 
     return get_meeting_detail(meeting_id)["board"]
