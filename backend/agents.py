@@ -352,12 +352,33 @@ def build_markdown(
     )
 
 
+def _is_non_board_utterance(text: str, speaker: str = "") -> bool:
+    """疑問文・進行指示・挨拶など、議事ボード4分類へ登録すべきでない発話を判定する。"""
+    t = text.strip()
+    if not t:
+        return True
+    if speaker == "進行指示" or is_close_meeting_request(t):
+        return True
+
+    concrete_board_keywords = ("確認後", "未定", "支給", "送付")
+    question_markers = ("？", "?", "教えてください", "教えて", "整理して", "読み上げて", "どうなっ", "何があ")
+    if any(k in t for k in question_markers) and not any(k in t for k in concrete_board_keywords):
+        return True
+
+    greeting_markers = ("こんにちは", "おはよう", "こんばんは", "聞こえますか", "聞こえてますか", "マイクテスト")
+    if any(k in t for k in greeting_markers) and len(t) <= 25:
+        return True
+
+    return False
+
+
 def _mock_scribe(utterances: list[dict[str, Any]], base: dict[str, list[str]]) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {c: list(base.get(c, [])) for c in db.CATEGORIES}
     seen = {x for items in out.values() for x in items}
     for u in utterances:
         t = str(u.get("text", "")).strip()
-        if not t or t in seen:
+        speaker = str(u.get("speaker", "")).strip()
+        if _is_non_board_utterance(t, speaker) or t in seen:
             continue
         seen.add(t)
         if any(k in t for k in ("支給", "送付", "素材", "写真", "ロゴ", "待ち")):

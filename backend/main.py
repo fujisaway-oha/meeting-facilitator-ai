@@ -58,6 +58,21 @@ def on_startup() -> None:
     db.init_db()
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     config.VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+    audio.cleanup_audio_cache()
+
+
+def _ensure_meeting_active(meeting_id: str) -> dict[str, Any]:
+    """完了済み会議への変更を防ぐガード。存在しなければ404、完了済みなら409を返す。"""
+    try:
+        detail = db.get_meeting_detail(meeting_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="会議が見つかりません。")
+    if detail["meeting"].get("status") == "completed":
+        raise HTTPException(
+            status_code=409,
+            detail="この会議は完了済みのため変更できません。ロビーから新しい会議を作成してください。",
+        )
+    return detail
 
 
 @app.middleware("http")
@@ -236,6 +251,7 @@ async def _process_utterance_and_scribe(
 
 @app.post("/api/meetings/{meeting_id}/utterances", dependencies=[Depends(auth.require_auth)])
 async def api_add_utterance(meeting_id: str, body: UtteranceRequest) -> dict[str, Any]:
+    _ensure_meeting_active(meeting_id)
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="発言テキストが空です。")
     try:
@@ -260,6 +276,7 @@ async def api_upload_audio(
     model: str = Form(""),
     use_mock: bool = Form(False),
 ) -> dict[str, Any]:
+    _ensure_meeting_active(meeting_id)
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="音声データが空です。")
@@ -298,6 +315,7 @@ async def api_voice_chat(
     use_mock: bool = Form(False),
 ) -> dict[str, Any]:
     """マイク音声をWhisperで文字起こしし、ボード更新＋AIファシリテーターのVOICEVOX音声返答を一括実行する。"""
+    _ensure_meeting_active(meeting_id)
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="音声データが空です。")
@@ -333,12 +351,14 @@ async def api_voice_chat(
                 use_mock,
             )
             db.complete_meeting_summary(meeting_id, sum_res["markdown_report"])
+            audio.cleanup_audio_cache()
             wav_name = await asyncio.to_thread(audio.synthesize_voicevox, sum_res["spoken_closing"])
             audio_url = f"/api/audio/{wav_name}" if wav_name else None
             payload = {
                 "skipped": False,
                 "is_summary": True,
                 "transcribed_text": user_text,
+                "utterance": utterance,
                 "spoken_message": sum_res["spoken_closing"],
                 "next_focus": "会議の締め・確定議事録を表示中",
                 "next_actions": sum_res["next_actions"],
@@ -347,6 +367,11 @@ async def api_voice_chat(
                 "board": detail["board"],
                 "model": sum_res["model"],
             }
+            await ws_manager.broadcast(
+                meeting_id,
+                "meeting.completed",
+                {"meeting_id": meeting_id, "summary_markdown": sum_res["markdown_report"]},
+            )
             await ws_manager.broadcast(meeting_id, "facilitator.speak", payload)
             return payload
 
@@ -379,12 +404,14 @@ async def api_voice_chat(
                 use_mock,
             )
             db.complete_meeting_summary(meeting_id, sum_res["markdown_report"])
+            audio.cleanup_audio_cache()
             wav_name = await asyncio.to_thread(audio.synthesize_voicevox, sum_res["spoken_closing"])
             audio_url = f"/api/audio/{wav_name}" if wav_name else None
             payload = {
                 "skipped": False,
                 "is_summary": True,
                 "transcribed_text": user_text,
+                "utterance": utterance,
                 "spoken_message": sum_res["spoken_closing"],
                 "next_focus": "会議の締め・確定議事録を表示中",
                 "next_actions": sum_res["next_actions"],
@@ -393,6 +420,11 @@ async def api_voice_chat(
                 "board": detail["board"],
                 "model": sum_res["model"],
             }
+            await ws_manager.broadcast(
+                meeting_id,
+                "meeting.completed",
+                {"meeting_id": meeting_id, "summary_markdown": sum_res["markdown_report"]},
+            )
             await ws_manager.broadcast(meeting_id, "facilitator.speak", payload)
             return payload
 
@@ -405,6 +437,7 @@ async def api_voice_chat(
             "skipped": False,
             "is_summary": False,
             "transcribed_text": user_text,
+            "utterance": utterance,
             "spoken_message": turn["spoken_message"],
             "next_focus": turn["next_focus"],
             "audio_url": audio_url,
@@ -421,6 +454,7 @@ async def api_voice_chat(
 # --- Manual Board Edit / Lock ---
 @app.patch("/api/meetings/{meeting_id}/board-items", dependencies=[Depends(auth.require_auth)])
 async def api_patch_board_item(meeting_id: str, body: BoardItemPatchRequest) -> dict[str, Any]:
+    _ensure_meeting_active(meeting_id)
     if not body.content.strip():
         raise HTTPException(status_code=400, detail="項目内容を入力してください。")
     board = db.upsert_manual_board_item(
@@ -436,6 +470,7 @@ async def api_patch_board_item(meeting_id: str, body: BoardItemPatchRequest) -> 
 
 @app.delete("/api/meetings/{meeting_id}/board-items/{item_id}", dependencies=[Depends(auth.require_auth)])
 async def api_delete_board_item(meeting_id: str, item_id: str) -> dict[str, Any]:
+    _ensure_meeting_active(meeting_id)
     board = db.delete_board_item(meeting_id, item_id)
     await ws_manager.broadcast(meeting_id, "board.updated", {"board": board})
     return {"board": board}
@@ -475,7 +510,7 @@ async def api_facilitate(meeting_id: str, body: FacilitateRequest) -> dict[str, 
 
 @app.post("/api/meetings/{meeting_id}/summarize", dependencies=[Depends(auth.require_auth)])
 async def api_summarize(meeting_id: str, body: SummarizeRequest) -> dict[str, Any]:
-    detail = db.get_meeting_detail(meeting_id)
+    detail = _ensure_meeting_active(meeting_id)
     await ws_manager.broadcast(meeting_id, "avatar.state", {"state": "thinking"})
     try:
         res = await asyncio.to_thread(
@@ -489,6 +524,7 @@ async def api_summarize(meeting_id: str, body: SummarizeRequest) -> dict[str, An
             body.use_mock,
         )
         db.complete_meeting_summary(meeting_id, res["markdown_report"])
+        audio.cleanup_audio_cache()
         wav_name = await asyncio.to_thread(audio.synthesize_voicevox, res["spoken_closing"])
         audio_url = f"/api/audio/{wav_name}" if wav_name else None
         payload = {
@@ -498,6 +534,11 @@ async def api_summarize(meeting_id: str, body: SummarizeRequest) -> dict[str, An
             "audio_url": audio_url,
             "model": res["model"],
         }
+        await ws_manager.broadcast(
+            meeting_id,
+            "meeting.completed",
+            {"meeting_id": meeting_id, "summary_markdown": res["markdown_report"]},
+        )
         await ws_manager.broadcast(meeting_id, "facilitator.speak", {
             "spoken_message": res["spoken_closing"],
             "next_focus": "会議のまとめ完了",

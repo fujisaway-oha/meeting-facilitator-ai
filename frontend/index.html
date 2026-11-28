@@ -8,7 +8,7 @@
   <script type="module" src="/src/main.ts"></script>
 </head>
 <body>
-  <!-- パスコード認証画面 -->
+  <!-- SCR-01: パスコード認証画面 -->
   <main id="authView" class="auth-shell">
     <section class="auth-card" aria-labelledby="authHeading">
       <h1 id="authHeading">AI会議ファシリテーター</h1>
@@ -41,102 +41,234 @@
 
         <p id="login-error" class="error-banner" aria-live="polite" hidden></p>
 
-        <button id="loginSubmitBtn" type="submit" class="btn-primary btn-full">会議室モニターを開始する</button>
+        <button id="loginSubmitBtn" type="submit" class="btn-primary btn-full">ログインして会議ロビーへ</button>
       </form>
     </section>
   </main>
 
-  <!-- 全画面アバター会議ステージ (100dvw x 100dvh) -->
+  <!-- SCR-02: 会議ロビー（ホーム）画面 -->
+  <main id="lobbyView" class="lobby-shell" hidden>
+    <header class="lobby-topbar">
+      <div class="lobby-brand">
+        <h1 class="lobby-title">🤖 AI会議ファシリテーター</h1>
+        <span class="hud-chip chip-brand">会議ロビー（ホーム）</span>
+      </div>
+      <div class="lobby-header-status">
+        <span id="lobbyOllamaBadge" class="hud-chip">LLM確認中</span>
+        <span id="lobbyVoicevoxBadge" class="hud-chip">VOICEVOX確認中</span>
+        <button id="lobbyLogoutBtn" type="button" class="btn-danger-outline">ログアウト</button>
+      </div>
+    </header>
+
+    <div class="lobby-grid">
+      <!-- 左ペイン：新しい会議を始める -->
+      <section class="lobby-pane lobby-create-pane" aria-labelledby="lobbyCreateHeading">
+        <div class="lobby-pane-header">
+          <h2 id="lobbyCreateHeading">✨ 新しい会議を始める</h2>
+          <p class="lobby-pane-lead">会議の概要・予定時間を設定して全画面モニターを開始します</p>
+        </div>
+
+        <form id="lobbyCreateMeetingForm" action="/api/meetings" method="POST">
+          <div class="form-group">
+            <label for="lobbyProjectSelect">対象案件（クライアント・プロジェクト）</label>
+            <div class="project-select-row">
+              <select id="lobbyProjectSelect" name="project_id" required></select>
+              <button id="openNewProjectBtn" type="button" class="btn-accent-purple">＋ 新規案件</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="lobbyMeetingTitle">会議タイトル（必須）</label>
+            <input
+              id="lobbyMeetingTitle"
+              name="title"
+              type="text"
+              required
+              value="第2回 デザイン・仕様確認打ち合わせ"
+            >
+          </div>
+
+          <div class="form-group">
+            <label for="lobbyMeetingAgenda">本日のアジェンダ・会議概要</label>
+            <textarea
+              id="lobbyMeetingAgenda"
+              name="agenda"
+              placeholder="本日の議題や決めたいゴールを入力"
+            >前回の未決定事項の解消とトップページデザイン案の確認</textarea>
+          </div>
+
+          <fieldset class="duration-fieldset">
+            <legend>ミーティング予定時間（会議ステージの残り時間目安へ連動）</legend>
+            <div class="duration-options">
+              <div class="duration-option">
+                <input id="dur30" class="visually-hidden" type="radio" name="duration_minutes" value="30">
+                <label for="dur30">30分</label>
+              </div>
+              <div class="duration-option">
+                <input id="dur45" class="visually-hidden" type="radio" name="duration_minutes" value="45" checked>
+                <label for="dur45">45分（標準）</label>
+              </div>
+              <div class="duration-option">
+                <input id="dur60" class="visually-hidden" type="radio" name="duration_minutes" value="60">
+                <label for="dur60">60分</label>
+              </div>
+              <div class="duration-option">
+                <input id="dur90" class="visually-hidden" type="radio" name="duration_minutes" value="90">
+                <label for="dur90">90分</label>
+              </div>
+            </div>
+          </fieldset>
+
+          <label class="carryover-callout" for="lobbyCarryOverCheck">
+            <input id="lobbyCarryOverCheck" name="carry_over" type="checkbox" checked>
+            <span id="lobbyCarryOverLabel">前回会議の「素材待ち」「未決定事項」を初期ボードへ自動引き継ぎする</span>
+          </label>
+
+          <button id="lobbyStartMeetingBtn" type="submit" class="btn-primary btn-full btn-lg">
+            🚀 この設定で会議室モニターを開始する
+          </button>
+        </form>
+      </section>
+
+      <!-- 右ペイン：会議一覧（途中から再開 ／ 過去の確定議事録） -->
+      <section class="lobby-pane lobby-list-pane" aria-labelledby="lobbyListHeading">
+        <div class="lobby-pane-header">
+          <h2 id="lobbyListHeading">📂 会議一覧（途中から再開 ／ 過去の確定議事録）</h2>
+          <p class="lobby-pane-lead">進行中の会議を再開するか、完了済み会議の確定議事録を閲覧できます</p>
+        </div>
+
+        <search class="lobby-filter-bar" aria-label="会議一覧の絞り込み">
+          <div class="filter-tabs" role="group" aria-label="ステータス絞り込み">
+            <button id="filterAllBtn" type="button" class="filter-tab-btn" data-status="all" aria-pressed="true">すべて (0)</button>
+            <button id="filterActiveBtn" type="button" class="filter-tab-btn" data-status="active" aria-pressed="false">🟢 進行中 (0)</button>
+            <button id="filterCompletedBtn" type="button" class="filter-tab-btn" data-status="completed" aria-pressed="false">⚪ 完了済み (0)</button>
+          </div>
+          <label for="lobbyFilterProjectSelect" class="visually-hidden">案件で絞り込み</label>
+          <select id="lobbyFilterProjectSelect" name="filter_project" class="lobby-filter-select">
+            <option value="">すべての案件</option>
+          </select>
+        </search>
+
+        <ul id="lobbyMeetingList" class="lobby-meeting-list"></ul>
+      </section>
+    </div>
+  </main>
+
+  <!-- SCR-03: 全画面アバター会議ステージ (100dvw x 100dvh) -->
   <div id="appView" class="stage-root" hidden>
     <!-- 背面：全画面アバター描画レイヤー -->
     <div id="avatarMount" class="fullscreen-avatar-stage"></div>
 
-    <!-- 上部：半透明ステータス＆注目論点HUDバー -->
-    <header class="hud-topbar">
-      <div class="hud-meeting-meta">
-        <span id="projectLabel" class="hud-chip chip-brand">案件</span>
-        <h2 id="meetingTitleHeading" class="hud-meeting-title">会議タイトル</h2>
-        <span id="avatarStatePill" class="hud-chip chip-state">待機中（傾聴モード）</span>
-      </div>
+    <!-- 上部・左側HUDコンテナ（縦積みFlexで狭幅折り返し時も重なりを防止） -->
+    <div class="hud-upper-layer">
+      <header class="hud-topbar">
+        <div class="hud-meeting-meta">
+          <button id="backToLobbyBtn" type="button" class="hud-back-btn">← ロビー</button>
+          <span id="projectLabel" class="hud-chip chip-brand">案件</span>
+          <h2 id="meetingTitleHeading" class="hud-meeting-title">会議タイトル</h2>
+          <span id="avatarStatePill" class="hud-chip chip-state">待機中（傾聴モード）</span>
+        </div>
 
-      <div class="hud-focus-pill" title="現在の注目論点">
-        <span class="focus-prefix">注目論点</span>
-        <strong id="nextFocusText">発言を聞き取りながら論点を整理します</strong>
-      </div>
+        <div class="hud-focus-pill">
+          <span class="focus-prefix">注目論点</span>
+          <strong id="nextFocusText">発言を聞き取りながら論点を整理します</strong>
+        </div>
 
-      <div class="hud-status-cluster">
-        <span id="ollamaBadge" class="hud-chip">LLM確認中</span>
-        <span id="voicevoxBadge" class="hud-chip">VOICEVOX確認中</span>
-        <button id="topBoardBtn" type="button" class="hud-board-summary-btn">
-          📋 ボード <span id="boardCountsText">決0・要0・素0・未0</span>
-        </button>
-      </div>
-    </header>
+        <div class="hud-status-cluster">
+          <button id="topBoardBtn" type="button" class="hud-board-summary-btn">
+            📋 ボード <span id="boardCountsText">決0・要0・素0・未0</span>
+          </button>
+          <span id="stageHealthDots" class="hud-health-dots" role="status" aria-label="AI接続状態">
+            <span id="ollamaDot" class="health-dot dot-warn" aria-hidden="true"></span>
+            <span id="voicevoxDot" class="health-dot dot-warn" aria-hidden="true"></span>
+          </span>
+        </div>
+      </header>
 
-    <!-- 下部中央：半透明の文字起こし（直近4件）＋ AI字幕オーバーレイ -->
-    <section class="hud-captions-zone" aria-label="リアルタイム文字起こしとAI字幕">
-      <div class="recent-transcript-glass">
+      <!-- 完了済み会議の閲覧モードガードバナー -->
+      <aside id="completedGuardBanner" class="completed-guard-banner" aria-live="polite" hidden>
+        <span>🔒 この会議は完了済みです（閲覧専用モード：録音・ボード変更はできません）</span>
+        <div class="completed-guard-actions">
+          <button id="bannerViewReportBtn" type="button" class="btn-secondary-dark">📄 確定議事録を見る</button>
+          <button id="bannerCreateNextBtn" type="button" class="btn-primary">＋ 次回会議を作成</button>
+        </div>
+      </aside>
+
+      <!-- 左側余白：直近の文字起こし（最新4件） -->
+      <aside class="hud-left-transcript" aria-label="直近の会話文字起こし">
         <div class="recent-transcript-header">
           <span>💬 直近の会話文字起こし</span>
-          <button id="inlineOpenLogBtn" type="button" class="hud-link-btn">全文ログ・手入力を開く</button>
+          <button id="inlineOpenLogBtn" type="button" class="hud-link-btn">全文ログ</button>
         </div>
         <ol id="recentTranscriptList" class="recent-transcript-list"></ol>
-      </div>
+      </aside>
+    </div>
 
-      <div class="ai-subtitle-glass" aria-live="polite">
+    <!-- 下部中央：AI字幕＋コンパクト通話ドック（単一縦積みFlexコンテナで重なりを構造的に防止） -->
+    <div class="hud-bottom-stack">
+      <section class="ai-subtitle-glass" aria-label="AI発話字幕" aria-live="polite">
         <p id="userHeardText" class="heard-line" hidden></p>
         <p id="subtitleText" class="ai-subtitle-line">こんにちは。会議の発言を記録しながら、論点整理と最後のまとめを担当します。</p>
         <p id="voiceTalkHint" class="hud-sub-hint">下の「声でAIと話す」から話しかけると、声で返事します（話し終えると自動送信）</p>
-      </div>
-    </section>
+      </section>
 
-    <!-- 最下部：Zoom / Meet 風コンパクト通話ドック -->
-    <nav class="hud-dock" aria-label="会議コントロールバー">
-      <button id="voiceTalkBtn" type="button" class="dock-btn dock-btn-talk">
-        🎙️ 声でAIと話す
-      </button>
+      <nav class="hud-dock" aria-label="会議コントロールバー">
+        <div class="dock-group">
+          <button id="voiceTalkBtn" type="button" class="dock-btn dock-btn-talk">
+            🎙️ 声でAIと話す
+          </button>
+          <label class="dock-toggle-pill" for="continuousTalkCheck">
+            <input id="continuousTalkCheck" name="continuous_talk" type="checkbox">
+            <span>連続会話</span>
+          </label>
+        </div>
 
-      <label class="dock-toggle-pill" for="continuousTalkCheck">
-        <input id="continuousTalkCheck" name="continuous_talk" type="checkbox">
-        <span>連続会話</span>
-      </label>
+        <span class="dock-divider" aria-hidden="true"></span>
 
-      <button id="recordBtn" type="button" class="dock-btn dock-btn-record">
-        🎤 発言のみ記録
-      </button>
+        <div class="dock-group">
+          <button id="recordBtn" type="button" class="dock-btn dock-btn-record">
+            🎤 発言のみ記録
+          </button>
+          <button id="timeCheckBtn" type="button" class="dock-btn">
+            ⏰ 残り時間声かけ
+          </button>
+        </div>
 
-      <button id="timeCheckBtn" type="button" class="dock-btn">
-        ⏰ 残り時間声かけ
-      </button>
+        <span class="dock-divider" aria-hidden="true"></span>
 
-      <button id="openBoardDrawerBtn" type="button" class="dock-btn">
-        📋 議事ボード
-      </button>
+        <div class="dock-group">
+          <button id="openBoardDrawerBtn" type="button" class="dock-btn">
+            📋 ボード
+          </button>
+          <button id="openLogDrawerBtn" type="button" class="dock-btn">
+            📜 ログ
+          </button>
+          <button id="openSettingsDrawerBtn" type="button" class="dock-btn dock-btn-icon" aria-label="設定">
+            ⚙️ 設定
+          </button>
+        </div>
 
-      <button id="openLogDrawerBtn" type="button" class="dock-btn">
-        📜 全文ログ・入力
-      </button>
+        <span class="dock-divider" aria-hidden="true"></span>
 
-      <button id="summarizeBtn" type="button" class="dock-btn dock-btn-finish">
-        📝 会議を締める
-      </button>
-
-      <button id="openSettingsDrawerBtn" type="button" class="dock-btn dock-btn-icon" aria-label="設定と会議切替">
-        ⚙️ 設定
-      </button>
-    </nav>
+        <div class="dock-group">
+          <button id="summarizeBtn" type="button" class="dock-btn dock-btn-finish">
+            📝 会議を締める
+          </button>
+        </div>
+      </nav>
+    </div>
   </div>
 
-  <!-- 半透明サイドドロワー①：4分類議事ボード -->
-  <dialog id="boardDrawer" class="glass-drawer" closedby="any">
+  <!-- DRW-01: 半透明サイドドロワー① 4分類議事ボード -->
+  <dialog id="boardDrawer" class="glass-drawer" closedby="any" aria-labelledby="boardDrawerTitle">
     <div class="drawer-inner">
       <header class="drawer-header">
         <div>
-          <h2>📋 リアルタイム議事ボード</h2>
+          <h2 id="boardDrawerTitle">📋 リアルタイム議事ボード</h2>
           <p id="meetingAgendaText" class="drawer-subtext"></p>
         </div>
         <div class="drawer-header-actions">
-          <button id="openAddBoardItemBtn" type="button" class="btn-secondary-dark">＋ 手動追加（🔒保護）</button>
+          <button id="openAddBoardItemBtn" type="button" class="btn-secondary-dark btn-nowrap">＋ 手動追加（🔒保護）</button>
           <form method="dialog"><button value="close" class="btn-close-drawer" aria-label="閉じる">✕</button></form>
         </div>
       </header>
@@ -162,12 +294,12 @@
     </div>
   </dialog>
 
-  <!-- 半透明サイドドロワー②：全文文字起こしログ ＆ テキスト手入力 -->
-  <dialog id="logDrawer" class="glass-drawer" closedby="any">
+  <!-- DRW-02: 半透明サイドドロワー② 全文文字起こしログ ＆ テキスト手入力 -->
+  <dialog id="logDrawer" class="glass-drawer" closedby="any" aria-labelledby="logDrawerTitle">
     <div class="drawer-inner">
       <header class="drawer-header">
         <div>
-          <h2>📜 会話の全文ログ ＆ テキスト入力</h2>
+          <h2 id="logDrawerTitle">📜 会話の全文ログ ＆ テキスト入力</h2>
           <p id="echoGateStatus" class="drawer-subtext">待機中</p>
         </div>
         <form method="dialog"><button value="close" class="btn-close-drawer" aria-label="閉じる">✕</button></form>
@@ -180,13 +312,14 @@
           <h3>発言をテキストで記録（議事ボード更新）</h3>
           <button id="sampleUtteranceBtn" type="button" class="btn-secondary-dark">サンプル発言を挿入</button>
         </div>
-        <form id="utteranceForm" class="utterance-form">
+        <form id="utteranceForm" action="#" method="POST" class="utterance-form">
           <label for="speakerSelect" class="visually-hidden">発言区分</label>
           <select id="speakerSelect" name="speaker">
             <option value="参加者">参加者</option>
             <option value="クライアント">クライアント</option>
             <option value="制作担当">制作担当</option>
           </select>
+          <label for="utteranceInput" class="visually-hidden">発言テキスト</label>
           <textarea id="utteranceInput" name="text" placeholder="発言テキストを入力して記録"></textarea>
           <button id="addUtteranceBtn" type="submit" class="btn-primary">記録</button>
         </form>
@@ -194,7 +327,7 @@
 
       <section class="drawer-section">
         <h3>AIファシリテーターへテキストで指示・質問</h3>
-        <form id="askForm" class="ask-row">
+        <form id="askForm" action="#" method="POST" class="ask-row">
           <label for="askInput" class="visually-hidden">AIへの呼びかけ内容</label>
           <input id="askInput" name="question" type="text" placeholder="例：未決定事項だけ整理して読み上げて">
           <button id="askBtn" type="submit" class="btn-primary">🙋 送信</button>
@@ -203,33 +336,35 @@
     </div>
   </dialog>
 
-  <!-- 半透明サイドドロワー③：会議切替・AIモデル・音声設定 -->
-  <dialog id="settingsDrawer" class="glass-drawer glass-drawer-narrow" closedby="any">
+  <!-- DRW-03: 半透明サイドドロワー③ 会議・AIモデル設定 -->
+  <dialog id="settingsDrawer" class="glass-drawer glass-drawer-narrow" closedby="any" aria-labelledby="settingsDrawerTitle">
     <div class="drawer-inner">
       <header class="drawer-header">
-        <h2>⚙️ 会議・AIモデル設定</h2>
+        <h2 id="settingsDrawerTitle">⚙️ 会議・AIモデル設定</h2>
         <form method="dialog"><button value="close" class="btn-close-drawer" aria-label="閉じる">✕</button></form>
       </header>
 
-      <div class="form-group">
-        <label for="meetingSelect">表示する会議の切り替え</label>
-        <select id="meetingSelect"></select>
-      </div>
-
-      <button id="openNewMeetingBtn" type="button" class="btn-secondary-dark btn-full">
-        ＋ 次回会議を新規作成（未解決課題の自動引き継ぎ）
-      </button>
+      <section class="drawer-section">
+        <h3>AI基盤の接続ステータス</h3>
+        <div class="status-badges-row">
+          <span id="ollamaBadge" class="hud-chip">LLM確認中</span>
+          <span id="voicevoxBadge" class="hud-chip">VOICEVOX確認中</span>
+        </div>
+        <button id="drawerBackToLobbyBtn" type="button" class="btn-secondary-dark btn-full">
+          ← 会議ロビーへ戻る（会議切替・新規作成）
+        </button>
+      </section>
 
       <hr class="drawer-divider">
 
       <div class="form-group">
         <label for="remainingInput">会議の残り時間目安（分）</label>
-        <input id="remainingInput" type="number" min="1" max="240" value="15">
+        <input id="remainingInput" name="remaining_minutes" type="number" min="1" max="240" value="45">
       </div>
 
       <div class="form-group">
         <label for="modeSelect">AI動作モード</label>
-        <select id="modeSelect">
+        <select id="modeSelect" name="ai_mode">
           <option value="auto">自動（Ollama接続時はLLM優先）</option>
           <option value="ollama">Ollama（ローカルLLM）固定</option>
           <option value="mock">デモモード（AI未接続テスト）</option>
@@ -238,7 +373,7 @@
 
       <div class="form-group">
         <label for="modelInput">使用LLMモデル名</label>
-        <input id="modelInput" type="text" value="llama3.1:latest" list="modelList">
+        <input id="modelInput" name="model" type="text" value="llama3.1:latest" list="modelList">
         <datalist id="modelList"></datalist>
       </div>
 
@@ -249,33 +384,10 @@
     </div>
   </dialog>
 
-  <!-- 新規会議作成モーダル -->
-  <dialog id="newMeetingDialog" class="modal-dialog" closedby="any">
-    <form id="newMeetingForm" class="dialog-inner">
-      <h2>新規会議の作成（前回課題の引き継ぎ）</h2>
-      <div class="form-group">
-        <label for="newMeetingTitle">会議タイトル（必須）</label>
-        <input id="newMeetingTitle" name="title" type="text" required value="第2回 デザイン・仕様確認打ち合わせ">
-      </div>
-      <div class="form-group">
-        <label for="newMeetingAgenda">アジェンダ・ゴール</label>
-        <textarea id="newMeetingAgenda" name="agenda">前回の未決定事項の解消とトップページデザイン案の確認</textarea>
-      </div>
-      <label class="checkbox-row" for="carryOverCheck">
-        <input id="carryOverCheck" name="carry_over" type="checkbox" checked>
-        前回会議の「素材待ち」「未決定事項」を初期ボードへ自動引き継ぎする
-      </label>
-      <div class="dialog-buttons">
-        <button type="submit" class="btn-primary">この設定で会議を開始</button>
-        <button id="cancelNewMeetingBtn" type="button" class="btn-ghost-light">キャンセル</button>
-      </div>
-    </form>
-  </dialog>
-
-  <!-- ボード手動追加モーダル -->
-  <dialog id="addBoardDialog" class="modal-dialog" closedby="any">
-    <form id="addBoardForm" class="dialog-inner">
-      <h2>議事ボードへの手動追加（AI上書きロック付き）</h2>
+  <!-- MDL-01: ボード手動追加・編集モーダル -->
+  <dialog id="addBoardDialog" class="modal-dialog" closedby="any" aria-labelledby="addBoardDialogTitle">
+    <form id="addBoardForm" action="/api/meetings" method="POST" class="dialog-inner">
+      <h2 id="addBoardDialogTitle">議事ボードへの手動追加</h2>
       <div class="form-group">
         <label for="manualCategory">分類</label>
         <select id="manualCategory" name="category">
@@ -289,31 +401,57 @@
         <label for="manualContent">項目内容（必須）</label>
         <input id="manualContent" name="content" type="text" required placeholder="例：納期は12月20日で確定">
       </div>
+      <label class="checkbox-row" for="manualLockCheck">
+        <input id="manualLockCheck" name="is_locked" type="checkbox" checked>
+        🔒 AI自動更新による上書き・削除から保護する
+      </label>
       <div class="dialog-buttons">
-        <button type="submit" class="btn-primary">🔒 ロック付きで追加</button>
+        <button id="submitBoardItemBtn" type="submit" class="btn-primary">🔒 保存する</button>
         <button id="cancelAddBoardBtn" type="button" class="btn-ghost-light">キャンセル</button>
       </div>
     </form>
   </dialog>
 
-  <!-- 会議まとめ＆Markdown出力モーダル -->
-  <dialog id="reportDialog" class="modal-dialog" closedby="any">
+  <!-- MDL-02: 会議まとめ＆Markdown出力モーダル -->
+  <dialog id="reportDialog" class="modal-dialog" closedby="any" aria-labelledby="reportDialogTitle">
     <div class="dialog-inner">
-      <h2>本日のまとめ ＆ 確定議事録</h2>
+      <h2 id="reportDialogTitle">本日のまとめ ＆ 確定議事録</h2>
       <section>
         <h3>ネクストアクション</h3>
         <ul id="nextActionsList" class="card-list-light"></ul>
       </section>
       <div class="form-group">
         <label for="markdownOutput">Markdown議事録（DB保存済み）</label>
-        <textarea id="markdownOutput" readonly></textarea>
+        <textarea id="markdownOutput" name="summary_markdown" readonly></textarea>
       </div>
       <form method="dialog" class="dialog-buttons">
         <button id="downloadMdBtn" type="button" class="btn-primary">📥 Markdown(.md)を保存</button>
         <button id="copyMdBtn" type="button" class="btn-ghost-light">📋 コピー</button>
-        <button value="close" class="btn-ghost-light">閉じる</button>
+        <button id="closeReportDialogBtn" value="close" class="btn-ghost-light">閉じる</button>
       </form>
     </div>
   </dialog>
+
+  <!-- MDL-03: 新規案件作成モーダル -->
+  <dialog id="newProjectDialog" class="modal-dialog" closedby="any" aria-labelledby="newProjectDialogTitle">
+    <form id="newProjectForm" action="/api/projects" method="POST" class="dialog-inner">
+      <h2 id="newProjectDialogTitle">新規案件の登録</h2>
+      <div class="form-group">
+        <label for="newProjectName">案件名（必須）</label>
+        <input id="newProjectName" name="name" type="text" required placeholder="例：コーポレートサイト刷新プロジェクト">
+      </div>
+      <div class="form-group">
+        <label for="newProjectClient">クライアント名</label>
+        <input id="newProjectClient" name="client_name" type="text" placeholder="例：株式会社〇〇">
+      </div>
+      <div class="dialog-buttons">
+        <button id="submitNewProjectBtn" type="submit" class="btn-primary">案件を登録</button>
+        <button id="cancelNewProjectBtn" type="button" class="btn-ghost-light">キャンセル</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 非ブロッキング・トースト通知コンテナ -->
+  <div id="toastContainer" class="toast-stack" aria-live="polite"></div>
 </body>
 </html>
